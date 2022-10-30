@@ -84,12 +84,11 @@ class mbus_parser():
         results_32 = soup.find_all('uint32')
         results_16 = soup.find_all('uint16')
 
-        #ActiveEnergy A+ in KiloWattstunden
-        self.kWhP = int(str(results_32)[16:16+8],16)/1000
+        #ActiveEnergy A+ in Wh
+        self.WhP = int(str(results_32)[16:16+8],16)
 
-        #ActiveEnergy A- in KiloWattstunden
-        self.kWhN = int(str(results_32)[52:52+8],16)/1000
-
+        #ActiveEnergy A- in Wh
+        self.WhN = int(str(results_32)[52:52+8],16)
 
         #CurrentElectricPower P+ in Watt
         self.WattP = int(str(results_32)[88:88+8],16)
@@ -131,9 +130,9 @@ class mbus_parser():
         print('WattP-:      ' + str(self.WattN))
         print('Watt:        ' + str(self.WattP - self.WattN))
         print('PowerFactor: ' + str(self.PowerFactor))
-        print('kWh+:        ' + str(self.kWhP))
-        print('kWh-:        ' + str(self.kWhN))
-        print('kWh:         ' + str(self.kWhP - self.kWhN))
+        print('Wh+:         ' + str(self.WhP))
+        print('Wh-:         ' + str(self.WhN))
+        print('Wh:          ' + str(self.WhP - self.WhN))
         print('==========================================================', flush=True)
 
     def publishValues(self, client):
@@ -148,9 +147,9 @@ class mbus_parser():
         client.publish(mqttTopicPrefix + "/WattP",       self.WattP)
         client.publish(mqttTopicPrefix + "/WattN",       self.WattN)
         client.publish(mqttTopicPrefix + "/Watt",        self.WattP - self.WattN)
-        client.publish(mqttTopicPrefix + "/kWhP",        self.kWhP)
-        client.publish(mqttTopicPrefix + "/kWhN",        self.kWhN)
-        client.publish(mqttTopicPrefix + "/kWh",         self.kWhP - self.kWhN)
+        client.publish(mqttTopicPrefix + "/WhP",         self.WhP)
+        client.publish(mqttTopicPrefix + "/WhN",         self.WhN)
+        client.publish(mqttTopicPrefix + "/Wh",          self.WhP - self.WhN)
         client.publish(mqttTopicPrefix + "/PowerFactor", self.PowerFactor)
 
     def publishHomeAssistant(self, client):
@@ -165,9 +164,9 @@ class mbus_parser():
               "Watt_consumed": { "device_class": "power",        "unit_of_measurement": "W",   "value": self.WattP },
               "Watt_produced": { "device_class": "power",        "unit_of_measurement": "W",   "value": self.WattN },
               "Watt":          { "device_class": "power",        "unit_of_measurement": "W",   "value": self.WattP - self.WattN },
-              "kWh_consumed":  { "device_class": "energy",       "unit_of_measurement": "kWh", "value": self.kWhP },
-              "kWh_produced":  { "device_class": "energy",       "unit_of_measurement": "kWh", "value": self.kWhN },
-              "kWh":           { "device_class": "energy",       "unit_of_measurement": "kWh", "value": self.kWhP - self.kWhN },
+              "Wh_consumed":   { "device_class": "energy",       "unit_of_measurement": "Wh",  "value": self.WhP },
+              "Wh_produced":   { "device_class": "energy",       "unit_of_measurement": "Wh",  "value": self.WhN },
+              "Wh":            { "device_class": "energy",       "unit_of_measurement": "Wh",  "value": self.WhP - self.WhN },
               "PowerFactor":   { "device_class": "power_factor", "unit_of_measurement": "%",   "value": 100 * self.PowerFactor },
         }
         # produce the data structure as well as enrich the config settings
