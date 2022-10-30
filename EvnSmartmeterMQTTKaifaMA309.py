@@ -187,7 +187,8 @@ class mbus_parser():
         # publish config every 100 state publishes
         if self.homeassistant_mqtt_publish % 100 == 0:
             print ("config:      " + json.dumps(configs, indent=4))
-        self.homeassistant_mqtt_publish += 1  
+        self.homeassistant_mqtt_publish += 1
+        self.publishValues(client)
         
 # the encryption_key
 encryption_key = os.environ.get("EVN_KEY")
