@@ -13,6 +13,7 @@ from gurux_dlms.GXDLMSTranslatorMessage import GXDLMSTranslatorMessage
 from bs4 import BeautifulSoup
 import os
 import traceback
+import json
 
 #workarround for missing distutils.util
 def str_to_bool(value: any) -> bool:
@@ -29,6 +30,7 @@ class mbus_parser():
     def __init__(self, dev, key):
         self.serial_dev = dev
         self.key = key
+        self.homeassistant_mqtt_publish = 0
         self.printRaw = True
         self.printXml = True
 
@@ -151,6 +153,43 @@ class mbus_parser():
         client.publish(mqttTopicPrefix + "/kWh",         self.kWhP - self.kWhN)
         client.publish(mqttTopicPrefix + "/PowerFactor", self.PowerFactor)
 
+    def publishHomeAssistant(self, client):
+        state_topic = "homeassistant/sensor/" + mqttTopicPrefix + "/state"
+        configs = {
+              "L1_Voltage":    { "device_class": "voltage",      "unit_of_measurement": "V",   "value": self.VoltageL1 },
+              "L2_Voltage":    { "device_class": "voltage",      "unit_of_measurement": "V",   "value": self.VoltageL2 },
+              "L3_Voltage":    { "device_class": "voltage",      "unit_of_measurement": "V",   "value": self.VoltageL3 },
+              "L1_Current":    { "device_class": "current",      "unit_of_measurement": "A",   "value": self.CurrentL1 },
+              "L2_Current":    { "device_class": "current",      "unit_of_measurement": "A",   "value": self.CurrentL2 },
+              "L3_Current":    { "device_class": "current",      "unit_of_measurement": "A",   "value": self.CurrentL3 },
+              "Watt_consumed": { "device_class": "power",        "unit_of_measurement": "W",   "value": self.WattP },
+              "Watt_produced": { "device_class": "power",        "unit_of_measurement": "W",   "value": self.WattN },
+              "Watt":          { "device_class": "power",        "unit_of_measurement": "W",   "value": self.WattP - self.WattN },
+              "kWh_consumed":  { "device_class": "energy",       "unit_of_measurement": "kWh", "value": self.kWhP },
+              "kWh_produced":  { "device_class": "energy",       "unit_of_measurement": "kWh", "value": self.kWhN },
+              "kWh":           { "device_class": "energy",       "unit_of_measurement": "kWh", "value": self.kWhP - self.kWhN },
+              "PowerFactor":   { "device_class": "power_factor", "unit_of_measurement": "%",   "value": 100 * self.PowerFactor },
+        }
+        # produce the data structure as well as enrich the config settings
+        state = {}
+        for k,v in configs.items():
+            # assign value
+            state[k] = v["value"]
+            # enrich config
+            if not "name" in v:
+                v["name"] = k
+            if not "value_template" in v:
+                v["value_template"] = "{{ value_json." + k + " }}"
+            if not "state_topic" in v:
+                v["state_topic"] = state_topic
+        # and now send the config
+        print ("state_topic: " + state_topic)
+        print ("state:       " + json.dumps(state, indent=4))
+        # publish config every 100 state publishes
+        if self.homeassistant_mqtt_publish % 100 == 0:
+            print ("config:      " + json.dumps(configs, indent=4))
+        self.homeassistant_mqtt_publish += 1  
+        
 # the encryption_key
 encryption_key = os.environ.get("EVN_KEY")
 if not encryption_key:
@@ -172,6 +211,7 @@ except Exception as e:
 mbus.printRaw = str_to_bool(os.environ.get("PRINT_RAW","False"))
 mbus.printXml = str_to_bool(os.environ.get("PRINT_XML","False"))
 printValues = str_to_bool(os.environ.get("PRINT_DATA","False"))
+mqttHomeAssistant = str_to_bool(os.environ.get("MQTT_HOME_ASSISTANT", "False"))
     
 #MQTT Broker 
 mqttBroker = os.environ.get("MQTT_HOST")
@@ -202,7 +242,10 @@ while 1:
         if printValues:
             mbus.printValues()
         if mqttBroker:
-            mbus.publishValues(client)
+            if mqttHomeAssistant:
+                mbus.publishHomeAssistant(client)
+            else:
+                mbus.publishValues(client)
     except Exception as e:
         exc_type, exc_value, exc_traceback = sys.exc_info()
         print("%s: Error handling the main loop: %s" % (sys.argv[0], format(e)), file=sys.stderr)
