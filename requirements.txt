@@ -1,0 +1,6 @@
+gurux-dlms
+beautifulsoup4
+paho-mqtt
+lxml
+cryptography
+pyserial
