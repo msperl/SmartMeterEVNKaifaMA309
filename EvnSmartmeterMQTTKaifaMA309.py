@@ -21,6 +21,77 @@ def str_to_bool(value: any) -> bool:
         return False
     return str(value).lower() in ("y", "yes", "t", "true", "on", "1")
 
+class home_assistant_mqtt():
+
+    valid_configs = {
+        "name": None,
+        "unique_id": None,
+        "unit_of_measurement": None,
+        "state_class": "measurement",
+        "icon": None,
+        "state_topic": None,
+        "value_template": None,
+        "json_attributes_topic": None,
+        "device": None
+    }
+
+    def publish(client, configs, prefix, state_topic, config_topic, publish_config):
+        # enrich the config settings and prepare the individual state topics
+        state_topic_configs = {}
+        for k,v in configs.items():
+            # enrich config
+            if not "label" in v:
+                v["label"] = k
+            if not "object_id" in v:
+                v["object_id"] = prefix
+            if not "name" in v:
+                v["name"] = v["object_id"] + " - " + k
+            if not "state_class" in v:
+                v["state_class"] = "measurement"
+            if not "state_topic" in v:
+                v["state_topic"] = state_topic % k
+            if not "unique_id" in v:
+                v["unique_id"] = prefix + "-" + k
+            # assign defaults
+            for kd, vd in home_assistant_mqtt.valid_configs.items():
+                if (kd not in v) and (vd != None):
+                    v[kd] = vd
+            # assign value
+            if v["value"] != None:
+                if v["state_topic"] not in state_topic_configs:
+                    state_topic_configs[v["state_topic"]] = []
+                state_topic_configs[v["state_topic"]].append(v)
+        # and publish all the states
+        for k,v in state_topic_configs.items():
+            if len(v) == 1:
+                value = v[0].get("value", None)
+            else:
+                value = {}
+                for i in v:
+                    vv = i.get("value", None)
+                    if vv != None:
+                        value[i[label]] = vv
+                    i["value_template"] = "{{ value_json." + i["label"] + " }}"
+                if len(value) > 0:
+                    value = json.dumps(value, indent=4)
+                else:
+                    value = None
+            if value != None:
+                client.publish(k, value)
+        # publish config when requested
+        if publish_config:
+            for k,v in configs.items():
+                # generate a valid final config
+                cfg = {}
+                for key in home_assistant_mqtt.valid_configs.keys():
+                    if key in v:
+                        cfg[key] = v[key]
+                # render the topic
+                c_topic = config_topic % v["label"]
+                c_json = json.dumps(cfg, indent=4)
+                # and publish it
+                client.publish(c_topic, c_json)
+
 class mbus_parser():
 
     mbus_message_length=282
@@ -85,10 +156,10 @@ class mbus_parser():
         results_16 = soup.find_all('uint16')
 
         #ActiveEnergy A+ in Wh
-        self.WhP = int(str(results_32)[16:16+8],16)
+        self.kWhP = int(str(results_32)[16:16+8],16)/1000
 
         #ActiveEnergy A- in Wh
-        self.WhN = int(str(results_32)[52:52+8],16)
+        self.kWhN = int(str(results_32)[52:52+8],16)/1000
 
         #CurrentElectricPower P+ in Watt
         self.WattP = int(str(results_32)[88:88+8],16)
@@ -130,9 +201,9 @@ class mbus_parser():
         print('WattP-:      ' + str(self.WattN))
         print('Watt:        ' + str(self.WattP - self.WattN))
         print('PowerFactor: ' + str(self.PowerFactor))
-        print('Wh+:         ' + str(self.WhP))
-        print('Wh-:         ' + str(self.WhN))
-        print('Wh:          ' + str(self.WhP - self.WhN))
+        print('kWh+:        ' + str(self.kWhP))
+        print('kWh-:        ' + str(self.kWhN))
+        print('kWh:         ' + str(self.kWhP - self.kWhN))
         print('==========================================================', flush=True)
 
     def publishValues(self, client):
@@ -147,48 +218,45 @@ class mbus_parser():
         client.publish(mqttTopicPrefix + "/WattP",       self.WattP)
         client.publish(mqttTopicPrefix + "/WattN",       self.WattN)
         client.publish(mqttTopicPrefix + "/Watt",        self.WattP - self.WattN)
-        client.publish(mqttTopicPrefix + "/WhP",         self.WhP)
-        client.publish(mqttTopicPrefix + "/WhN",         self.WhN)
-        client.publish(mqttTopicPrefix + "/Wh",          self.WhP - self.WhN)
+        client.publish(mqttTopicPrefix + "/kWhP",        self.kWhP)
+        client.publish(mqttTopicPrefix + "/kWhN",        self.kWhN)
+        client.publish(mqttTopicPrefix + "/Wh",          self.kWhP - self.kWhN)
         client.publish(mqttTopicPrefix + "/PowerFactor", self.PowerFactor)
 
     def publishHomeAssistant(self, client):
         state_topic = "homeassistant/sensor/" + mqttTopicPrefix + "/state"
+        state_topic = "homeassistant/sensor/" + mqttTopicPrefix + "/%s/state"
+        config_topic = "homeassistant/sensor/" + mqttTopicPrefix + "/%s/config"
         configs = {
-              "L1_Voltage":    { "device_class": "voltage",      "unit_of_measurement": "V",   "value": self.VoltageL1 },
-              "L2_Voltage":    { "device_class": "voltage",      "unit_of_measurement": "V",   "value": self.VoltageL2 },
-              "L3_Voltage":    { "device_class": "voltage",      "unit_of_measurement": "V",   "value": self.VoltageL3 },
-              "L1_Current":    { "device_class": "current",      "unit_of_measurement": "A",   "value": self.CurrentL1 },
-              "L2_Current":    { "device_class": "current",      "unit_of_measurement": "A",   "value": self.CurrentL2 },
-              "L3_Current":    { "device_class": "current",      "unit_of_measurement": "A",   "value": self.CurrentL3 },
-              "Watt_consumed": { "device_class": "power",        "unit_of_measurement": "W",   "value": self.WattP },
-              "Watt_produced": { "device_class": "power",        "unit_of_measurement": "W",   "value": self.WattN },
-              "Watt":          { "device_class": "power",        "unit_of_measurement": "W",   "value": self.WattP - self.WattN },
-              "Wh_consumed":   { "device_class": "energy",       "unit_of_measurement": "Wh",  "value": self.WhP },
-              "Wh_produced":   { "device_class": "energy",       "unit_of_measurement": "Wh",  "value": self.WhN },
-              "Wh":            { "device_class": "energy",       "unit_of_measurement": "Wh",  "value": self.WhP - self.WhN },
-              "PowerFactor":   { "device_class": "power_factor", "unit_of_measurement": "%",   "value": 100 * self.PowerFactor },
+              "Voltage_L1":    { "device_class": "voltage",      "unit_of_measurement": "V",   "value": getattr(self,"VoltageL1", None) },
+              "Voltage_L2":    { "device_class": "voltage",      "unit_of_measurement": "V",   "value": getattr(self, "VoltageL2", None) },
+              "Voltage_L3":    { "device_class": "voltage",      "unit_of_measurement": "V",   "value": getattr(self, "VoltageL3", None) },
+              "Current_L1":    { "device_class": "current",      "unit_of_measurement": "A",   "value": getattr(self, "CurrentL1", None) },
+              "Current_l2":    { "device_class": "current",      "unit_of_measurement": "A",   "value": getattr(self, "CurrentL2", None) },
+              "Current_L3":    { "device_class": "current",      "unit_of_measurement": "A",   "value": getattr(self, "CurrentL3", None) },
+              "Watt_consumed": { "device_class": "power",        "unit_of_measurement": "W",   "value": getattr(self, "WattP", None) },
+              "Watt_produced": { "device_class": "power",        "unit_of_measurement": "W",   "value": getattr(self, "WattN", None) },
+              "Watt":          { "device_class": "power",        "unit_of_measurement": "W",   "value": None },
+              "kWh_consumed":  { "device_class": "energy",       "unit_of_measurement": "kWh", "value": getattr(self, "kWhP", None) },
+              "kWh_produced":  { "device_class": "energy",       "unit_of_measurement": "kWh", "value": getattr(self, "kWhN", None) },
+              "kWh":           { "device_class": "energy",       "unit_of_measurement": "kWh", "value": None },
+              "PowerFactor":   { "device_class": "power_factor", "unit_of_measurement": "%",   "value": getattr(self, "PowerFactor", None) },
         }
-        # produce the data structure as well as enrich the config settings
-        state = {}
-        for k,v in configs.items():
-            # assign value
-            state[k] = v["value"]
-            # enrich config
-            if not "name" in v:
-                v["name"] = k
-            if not "value_template" in v:
-                v["value_template"] = "{{ value_json." + k + " }}"
-            if not "state_topic" in v:
-                v["state_topic"] = state_topic
-        # and now send the config
-        print ("state_topic: " + state_topic)
-        print ("state:       " + json.dumps(state, indent=4))
-        # publish config every 100 state publishes
-        if self.homeassistant_mqtt_publish % 100 == 0:
-            print ("config:      " + json.dumps(configs, indent=4))
+        # do some math if the values are not None
+        whc = configs["kWh_consumed"]["value"]
+        whp = configs["kWh_produced"]["value"]
+        if (whc != None) and (whp != None) :
+            configs["kWh"]["value"] = whc - whp
+        wc = configs["Watt_consumed"]["value"]
+        wp = configs["Watt_produced"]["value"]
+        if (wc != None) and (wp != None) :
+            configs["Watt"]["value"] = wc - wp
+        pf = configs["PowerFactor"]["value"]
+        if pf != None:
+            configs["PowerFactor"]["value"] = 100 * pf
+        # and now publish values as well as configs every 100 time we publish the values
+        home_assistant_mqtt.publish(client, configs = configs, prefix = mqttTopicPrefix, state_topic = state_topic, config_topic = config_topic, publish_config = (self.homeassistant_mqtt_publish % 100 == 0))
         self.homeassistant_mqtt_publish += 1
-        self.publishValues(client)
         
 # the encryption_key
 encryption_key = os.environ.get("EVN_KEY")
@@ -213,7 +281,7 @@ mbus.printXml = str_to_bool(os.environ.get("PRINT_XML","False"))
 printValues = str_to_bool(os.environ.get("PRINT_DATA","False"))
 mqttHomeAssistant = str_to_bool(os.environ.get("MQTT_HOME_ASSISTANT", "False"))
     
-#MQTT Broker 
+#MQTT Broker
 mqttBroker = os.environ.get("MQTT_HOST")
 if mqttBroker:
     try:
