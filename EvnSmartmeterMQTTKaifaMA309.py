@@ -248,7 +248,8 @@ while 1:
         if mqttBroker:
             connected = False
             try:
-                client.reconnect()
+                for t in range(1, 10):
+                    client.loop(timeout=0.01)
                 connected = True
             except:
                 print("%s: Lost Connection to MQTT...Trying to reconnect in 2 Seconds" % (sys.argv[0]), file=sys.stderr)
@@ -258,6 +259,7 @@ while 1:
                     mbus.publishHomeAssistant(client)
                 else:
                     mbus.publishValues(client)
+            client.loop(timeout=0.01)
     except Exception as e:
         exc_type, exc_value, exc_traceback = sys.exc_info()
         print("%s: Error handling the main loop: %s" % (sys.argv[0], format(e)), file=sys.stderr)
