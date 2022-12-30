@@ -64,7 +64,12 @@ class home_assistant_mqtt():
                 else:
                     value = None
             if value != None:
-                client.publish(k, value)
+                ret,mid = client.publish(k, value)
+                print("%s=%s - %s" % (k,value, ret), flush=True)
+                if ret == 4:
+                    client.reconnect()
+                    ret,mid = client.publish(k, value)
+                    print("R: %s=%s - %s" % (k,value, ret), flush=True)
         # publish config when requested
         if publish_config:
             for k,v in configs.items():
@@ -77,4 +82,8 @@ class home_assistant_mqtt():
                 c_topic = config_topic % v["label"]
                 c_json = json.dumps(cfg, indent=4)
                 # and publish it
-                client.publish(c_topic, c_json)
+                ret, mid = client.publish(c_topic, c_json)
+                if ret == 4:
+                    client.reconnect()
+                    ret, mid = client.publish(c_topic, c_json)
+                    print("R: %s=%s - %s" % (c_topic, c_json, ret), flush=True)
