@@ -219,6 +219,15 @@ mqttHomeAssistant = str_to_bool(os.environ.get("MQTT_HOME_ASSISTANT", "False"))
     
 #MQTT Broker
 mqttBroker = os.environ.get("MQTT_HOST")
+
+def on_connect(mqttc, obj, flags, rc):
+        print("connect rc: " + str(rc), flush = True)
+def on_disconnect(mqttc, obj, rc):
+        print("disconnect rc: " + str(rc), flush = True)        
+def on_log(mqttc, obj, level, string):
+    if level != mqtt.MQTT_LOG_DEBUG:
+        print("%s - %s" % (level, string), flush = True)
+
 if mqttBroker:
     try:
         mqttBrokerPort = int(os.environ.get("MQTT_PORT", "1883"))
@@ -228,8 +237,14 @@ if mqttBroker:
         mqttTopicPrefix = os.environ.get("MQTT_TOPIC_PREFIX", "Smartmeter")
         
         client = mqtt.Client(mqttClientName)
+
+        client.on_log = on_log
+        client.on_connect = on_connect
+        client.on_disconnect = on_disconnect
+
+        client.reconnect_delay_set(1, 2)
         client.username_pw_set(mqttUser, mqttPasswort)
-        client.connect(mqttBroker, port=mqttBrokerPort, keepalive=60)
+        client.connect(mqttBroker, port=mqttBrokerPort, keepalive=10)
         client.loop_start()
     except Exception as e:
         print("%s: the broker IP/port/user/password is wrong - %s" % (sys.argv[0], str(e)), file=sys.stderr)
@@ -246,20 +261,12 @@ while 1:
         if printValues:
             mbus.printValues()
         if mqttBroker:
-            connected = False
-            try:
-                for t in range(1, 10):
-                    client.loop(timeout=0.01)
-                connected = True
-            except:
-                print("%s: Lost Connection to MQTT...Trying to reconnect in 2 Seconds" % (sys.argv[0]), file=sys.stderr)
-                time.sleep(2)
+            connected = True
             if connected:
                 if mqttHomeAssistant:
                     mbus.publishHomeAssistant(client)
                 else:
                     mbus.publishValues(client)
-            client.loop(timeout=0.01)
     except Exception as e:
         exc_type, exc_value, exc_traceback = sys.exc_info()
         print("%s: Error handling the main loop: %s" % (sys.argv[0], format(e)), file=sys.stderr)
