@@ -65,11 +65,9 @@ class home_assistant_mqtt():
                     value = None
             if value != None:
                 ret,mid = client.publish(k, value)
-                print("%s=%s - %s" % (k,value, ret), flush=True)
                 if ret == mqtt.MQTT_ERR_NO_CONN:
                     time.sleep(2)
                     ret,mid = client.publish(k, value)
-                    print("R: %s=%s - %s" % (k,value, ret), flush=True)
         # publish config when requested
         if publish_config:
             for k,v in configs.items():
@@ -86,4 +84,3 @@ class home_assistant_mqtt():
                 if ret == mqtt.MQTT_ERR_NO_CONN:
                     time.sleep(2)
                     ret, mid = client.publish(c_topic, c_json)
-                    print("R: %s=%s - %s" % (c_topic, c_json, ret), flush=True)
